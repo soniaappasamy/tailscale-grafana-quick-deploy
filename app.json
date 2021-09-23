@@ -1,0 +1,17 @@
+{
+  "name": "Grafana over Tailscale",
+  "description": "Deploy a Grafana server only accessible over your Tailscale network.",
+  "repository": "https://github.com/soniaappasamy/tailscale-grafana-quick-deploy",
+  "logo": "https://tailscale.com/static/logo.svg",
+  "keywords": ["tailscale", "grafana", "heroku"],
+  "website": "https://tailscale.com/",
+  "success_url": "/",
+  "addons": ["heroku-postgresql:hobby-dev"],
+  "env": {
+    "TAILSCALE_AUTHKEY": {
+      "description": "Key for authenticating Tailscale without needing to manually login from a web browser. When using the quick-deploy button via the Tailscale admin panel, this gets set for you. A key can be manually generated at https://login.tailscale.com/admin/settings/authkeys",
+      "required": true
+    }
+  },
+  "stack": "container"
+}
