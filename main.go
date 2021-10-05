@@ -146,6 +146,8 @@ func startPrivateProxyServer() error {
 	origin, _ := url.Parse("http://localhost:3000/") // grafana URL
 	proxy := httputil.NewSingleHostReverseProxy(origin)
 
+	tailscale.TailscaledSocket = socketPath
+
 	authProxyMux := http.NewServeMux()
 	authProxyMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		who, err := tailscale.WhoIs(r.Context(), r.RemoteAddr)
