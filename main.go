@@ -151,6 +151,7 @@ func startPrivateProxyServer() error {
 		who, err := tailscale.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
 			http.Error(w, "Your Tailscale works, but we failed to look you up.", 500)
+			log.Printf("error running whois %v", err)
 			return
 		}
 		if who.UserProfile == nil || who.UserProfile.LoginName == "" {
