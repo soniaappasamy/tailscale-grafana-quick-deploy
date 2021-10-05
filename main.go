@@ -7,11 +7,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	_ "github.com/lib/pq"
+	"tailscale.com/client/tailscale"
 )
 
 func main() {
@@ -19,10 +23,28 @@ func main() {
 	if err := startTailscale(context.Background()); err != nil {
 		log.Fatal(err)
 	}
+
+	var wg sync.WaitGroup
+
+	fmt.Printf("Starting up whois auth server.")
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := startPrivateProxyServer(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
 	fmt.Printf("Starting up dummy public server.")
-	if err := startPublicDummyServer(); err != nil {
-		log.Fatal(err)
-	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := startPublicDummyServer(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	wg.Wait()
 }
 
 const (
@@ -115,6 +137,39 @@ func startTailscale(ctx context.Context) error {
 	return nil
 }
 
+const (
+	grafanaAuthProxyPort   = 3001
+	grafanaAuthProxyHeader = "X-Tailscale-User"
+)
+
+func startPrivateProxyServer() error {
+	origin, _ := url.Parse("http://localhost:3000/") // grafana URL
+	proxy := httputil.NewSingleHostReverseProxy(origin)
+
+	authProxyMux := http.NewServeMux()
+	authProxyMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		who, err := tailscale.WhoIs(r.Context(), r.RemoteAddr)
+		if err != nil {
+			http.Error(w, "Your Tailscale works, but we failed to look you up.", 500)
+			return
+		}
+		if who.UserProfile == nil || who.UserProfile.LoginName == "" {
+			http.Error(w, fmt.Sprintf("failed to identify remote user: %v", err), http.StatusInternalServerError)
+			return
+		}
+		user := who.UserProfile.LoginName
+		rn := r.Clone(r.Context())
+		rn.Header.Add("X-Forwarded-Host", rn.Host)
+		rn.Header.Add("X-Origin-Host", origin.Host)
+		rn.Header.Add("X-Tailscale-User", user)
+		rn.URL.Scheme = "http"
+		rn.URL.Host = origin.Host
+
+		proxy.ServeHTTP(w, rn)
+	})
+	return http.ListenAndServe(fmt.Sprintf(":%d", grafanaAuthProxyPort), authProxyMux)
+}
+
 // startPublicDummyServer starts a go webserver that displays a simple welcome prompt to viewers.
 // Heroku requires something to be running at it's public port, otherwise it shuts down the dyno.
 // We only want our server acessible over tailscale, though so we don't want to serve that over
@@ -135,7 +190,5 @@ func startPublicDummyServer() error {
 	publicMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Welcome! Hello from %s", hostname) // TODO: make this view a little more useful (maybe add instructions for accessing the service)
 	})
-	http.ListenAndServe(":"+port, publicMux)
-
-	return nil
+	return http.ListenAndServe(":"+port, publicMux)
 }
